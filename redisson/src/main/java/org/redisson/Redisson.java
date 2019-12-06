@@ -64,6 +64,7 @@ import org.redisson.api.RQueue;
 import org.redisson.api.RRateLimiter;
 import org.redisson.api.RReadWriteLock;
 import org.redisson.api.RRemoteService;
+import org.redisson.api.RRingBuffer;
 import org.redisson.api.RScheduledExecutorService;
 import org.redisson.api.RScoredSortedSet;
 import org.redisson.api.RScript;
@@ -104,6 +105,7 @@ public class Redisson implements RedissonClient {
 
     protected final QueueTransferService queueTransferService = new QueueTransferService();
     protected final EvictionScheduler evictionScheduler;
+    protected final WriteBehindService writeBehindService;
     protected final ConnectionManager connectionManager;
 
     protected final ConcurrentMap<Class<?>, Class<?>> liveObjectClassCache = new ConcurrentHashMap<>();
@@ -117,6 +119,7 @@ public class Redisson implements RedissonClient {
 
         connectionManager = ConfigSupport.createConnectionManager(configCopy);
         evictionScheduler = new EvictionScheduler(connectionManager.getCommandExecutor());
+        writeBehindService = new WriteBehindService(connectionManager.getCommandExecutor());
     }
 
     public EvictionScheduler getEvictionScheduler() {
@@ -294,22 +297,24 @@ public class Redisson implements RedissonClient {
 
     @Override
     public <K, V> RLocalCachedMap<K, V> getLocalCachedMap(String name, LocalCachedMapOptions<K, V> options) {
-        return new RedissonLocalCachedMap<K, V>(connectionManager.getCommandExecutor(), name, options, evictionScheduler, this);
+        return new RedissonLocalCachedMap<K, V>(connectionManager.getCommandExecutor(), name, 
+                options, evictionScheduler, this, writeBehindService);
     }
 
     @Override
     public <K, V> RLocalCachedMap<K, V> getLocalCachedMap(String name, Codec codec, LocalCachedMapOptions<K, V> options) {
-        return new RedissonLocalCachedMap<K, V>(codec, connectionManager.getCommandExecutor(), name, options, evictionScheduler, this);
+        return new RedissonLocalCachedMap<K, V>(codec, connectionManager.getCommandExecutor(), name, 
+                options, evictionScheduler, this, writeBehindService);
     }
 
     @Override
     public <K, V> RMap<K, V> getMap(String name) {
-        return new RedissonMap<K, V>(connectionManager.getCommandExecutor(), name, this, null);
+        return new RedissonMap<K, V>(connectionManager.getCommandExecutor(), name, this, null, null);
     }
 
     @Override
     public <K, V> RMap<K, V> getMap(String name, MapOptions<K, V> options) {
-        return new RedissonMap<K, V>(connectionManager.getCommandExecutor(), name, this, options);
+        return new RedissonMap<K, V>(connectionManager.getCommandExecutor(), name, this, options, writeBehindService);
     }
 
     @Override
@@ -354,32 +359,32 @@ public class Redisson implements RedissonClient {
 
     @Override
     public <K, V> RMapCache<K, V> getMapCache(String name) {
-        return new RedissonMapCache<K, V>(evictionScheduler, connectionManager.getCommandExecutor(), name, this, null);
+        return new RedissonMapCache<K, V>(evictionScheduler, connectionManager.getCommandExecutor(), name, this, null, null);
     }
 
     @Override
     public <K, V> RMapCache<K, V> getMapCache(String name, MapOptions<K, V> options) {
-        return new RedissonMapCache<K, V>(evictionScheduler, connectionManager.getCommandExecutor(), name, this, options);
+        return new RedissonMapCache<K, V>(evictionScheduler, connectionManager.getCommandExecutor(), name, this, options, writeBehindService);
     }
 
     @Override
     public <K, V> RMapCache<K, V> getMapCache(String name, Codec codec) {
-        return new RedissonMapCache<K, V>(codec, evictionScheduler, connectionManager.getCommandExecutor(), name, this, null);
+        return new RedissonMapCache<K, V>(codec, evictionScheduler, connectionManager.getCommandExecutor(), name, this, null, null);
     }
 
     @Override
     public <K, V> RMapCache<K, V> getMapCache(String name, Codec codec, MapOptions<K, V> options) {
-        return new RedissonMapCache<K, V>(codec, evictionScheduler, connectionManager.getCommandExecutor(), name, this, options);
+        return new RedissonMapCache<K, V>(codec, evictionScheduler, connectionManager.getCommandExecutor(), name, this, options, writeBehindService);
     }
 
     @Override
     public <K, V> RMap<K, V> getMap(String name, Codec codec) {
-        return new RedissonMap<K, V>(codec, connectionManager.getCommandExecutor(), name, this, null);
+        return new RedissonMap<K, V>(codec, connectionManager.getCommandExecutor(), name, this, null, null);
     }
 
     @Override
     public <K, V> RMap<K, V> getMap(String name, Codec codec, MapOptions<K, V> options) {
-        return new RedissonMap<K, V>(codec, connectionManager.getCommandExecutor(), name, this, options);
+        return new RedissonMap<K, V>(codec, connectionManager.getCommandExecutor(), name, this, options, writeBehindService);
     }
 
     @Override
@@ -470,13 +475,11 @@ public class Redisson implements RedissonClient {
 
     @Override
     public RRemoteService getRemoteService(String name, Codec codec) {
-        String executorId;
-        if (codec == connectionManager.getCodec()) {
-            executorId = connectionManager.getId().toString();
-        } else {
-            executorId = connectionManager.getId() + ":" + name;
+        String executorId = connectionManager.getId();
+        if (codec != connectionManager.getCodec()) {
+            executorId = executorId + ":" + name;
         }
-        return new RedissonRemoteService(codec, this, name, connectionManager.getCommandExecutor(), executorId, responses);
+        return new RedissonRemoteService(codec, name, connectionManager.getCommandExecutor(), executorId, responses);
     }
 
     @Override
@@ -542,6 +545,16 @@ public class Redisson implements RedissonClient {
         return new RedissonQueue<V>(codec, connectionManager.getCommandExecutor(), name, this);
     }
 
+    @Override
+    public <V> RRingBuffer<V> getRingBuffer(String name) {
+        return new RedissonRingBuffer<V>(connectionManager.getCommandExecutor(), name, this);
+    }
+    
+    @Override
+    public <V> RRingBuffer<V> getRingBuffer(String name, Codec codec) {
+        return new RedissonRingBuffer<V>(codec, connectionManager.getCommandExecutor(), name, this);
+    }
+    
     @Override
     public <V> RBlockingQueue<V> getBlockingQueue(String name) {
         return new RedissonBlockingQueue<V>(connectionManager.getCommandExecutor(), name, this);
@@ -658,7 +671,7 @@ public class Redisson implements RedissonClient {
 
     @Override
     public RLiveObjectService getLiveObjectService() {
-        return new RedissonLiveObjectService(this, liveObjectClassCache, connectionManager.getCommandExecutor());
+        return new RedissonLiveObjectService(liveObjectClassCache, connectionManager);
     }
 
     @Override
@@ -745,5 +758,9 @@ public class Redisson implements RedissonClient {
         return new RedissonPriorityDeque<V>(codec, connectionManager.getCommandExecutor(), name, this);
     }
 
+    @Override
+    public String getId() {
+        return connectionManager.getId();
+    }
 
 }

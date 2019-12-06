@@ -15,10 +15,10 @@
  */
 package org.redisson.api;
 
-import java.util.List;
-
 import org.redisson.client.codec.Codec;
 import org.redisson.config.Config;
+
+import java.util.List;
 
 /**
  * Main Redisson interface for access
@@ -143,7 +143,15 @@ public interface RedissonReactiveClient {
      * @return RedLock object
      */
     RLockReactive getRedLock(RLock... locks);
-    
+
+    /**
+     * Returns CountDownLatch instance by name.
+     *
+     * @param name - name of object
+     * @return CountDownLatch object
+     */
+    RCountDownLatchReactive getCountDownLatch(String name);
+
     /**
      * Returns set-based cache instance by <code>name</code>.
      * Supports value eviction with a given TTL value.
@@ -506,6 +514,25 @@ public interface RedissonReactiveClient {
     <V> RQueueReactive<V> getQueue(String name, Codec codec);
 
     /**
+     * Returns RingBuffer based queue.
+     * 
+     * @param <V> value type
+     * @param name - name of object
+     * @return RingBuffer object
+     */
+    <V> RRingBufferReactive<V> getRingBuffer(String name);
+    
+    /**
+     * Returns RingBuffer based queue.
+     * 
+     * @param <V> value type
+     * @param name - name of object
+     * @param codec - codec for values
+     * @return RingBuffer object
+     */
+    <V> RRingBufferReactive<V> getRingBuffer(String name, Codec codec);
+    
+    /**
      * Returns blocking queue instance by name.
      * 
      * @param <V> type of values
@@ -581,6 +608,40 @@ public interface RedissonReactiveClient {
      */
     RAtomicDoubleReactive getAtomicDouble(String name);
 
+    /**
+     * Returns object for remote operations prefixed with the default name (redisson_remote_service)
+     * 
+     * @return RemoteService object
+     */
+    RRemoteService getRemoteService();
+    
+    /**
+     * Returns object for remote operations prefixed with the default name (redisson_remote_service)
+     * and uses provided codec for method arguments and result.
+     * 
+     * @param codec - codec for response and request
+     * @return RemoteService object
+     */
+    RRemoteService getRemoteService(Codec codec);
+
+    /**
+     * Returns object for remote operations prefixed with the specified name
+     *
+     * @param name - the name used as the Redis key prefix for the services
+     * @return RemoteService object
+     */
+    RRemoteService getRemoteService(String name);
+    
+    /**
+     * Returns object for remote operations prefixed with the specified name
+     * and uses provided codec for method arguments and result.
+     *
+     * @param name - the name used as the Redis key prefix for the services
+     * @param codec - codec for response and request
+     * @return RemoteService object
+     */
+    RRemoteService getRemoteService(String name, Codec codec);
+    
     /**
      * Returns bitSet instance by name.
      *
@@ -685,4 +746,11 @@ public interface RedissonReactiveClient {
      */
     boolean isShuttingDown();
 
+    /**
+     * Returns id of this Redisson instance
+     * 
+     * @return id
+     */
+    String getId();
+    
 }

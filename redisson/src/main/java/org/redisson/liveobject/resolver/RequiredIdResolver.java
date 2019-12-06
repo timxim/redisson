@@ -15,8 +15,8 @@
  */
 package org.redisson.liveobject.resolver;
 
-import org.redisson.api.RedissonClient;
 import org.redisson.api.annotation.RId;
+import org.redisson.command.CommandAsyncExecutor;
 
 /**
  * 
@@ -28,8 +28,8 @@ public class RequiredIdResolver implements RIdResolver<Object> {
     public static final RequiredIdResolver INSTANCE = new RequiredIdResolver();
 
     @Override
-    public Object resolve(Class<?> cls, RId annotation, String idFieldName, RedissonClient redisson) {
-        throw new IllegalArgumentException("id value not defined for instance of " + cls);
+    public Object resolve(Class<?> cls, RId annotation, String idFieldName, CommandAsyncExecutor commandAsyncExecutor) {
+        throw new IllegalArgumentException("id value is not defined for instance of " + cls);
     }
 
 }

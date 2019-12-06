@@ -27,8 +27,28 @@ import java.util.Queue;
  */
 public interface RQueue<V> extends Queue<V>, RExpirable, RQueueAsync<V> {
 
-    V pollLastAndOfferFirstTo(String dequeName);
+    /**
+     * Retrieves and removes last available tail element of this queue queue and adds it at the head of <code>queueName</code>.
+     *
+     * @param queueName - names of destination queue
+     * @return the tail of this queue, or {@code null} if the
+     *         specified waiting time elapses before an element is available
+     */
+    V pollLastAndOfferFirstTo(String queueName);
 
+    /**
+     * Returns all queue elements at once
+     * 
+     * @return elements
+     */
     List<V> readAll();
+
+    /**
+     * Retrieves and removes the head elements of this queue.
+     * Elements amount limited by <code>limit</code> param.
+     *
+     * @return list of head elements
+     */
+    List<V> poll(int limit);
     
 }

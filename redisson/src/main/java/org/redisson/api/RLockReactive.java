@@ -167,5 +167,21 @@ public interface RLockReactive {
      * @return holds or <code>0</code> if this lock is not held by current thread
      */
     Mono<Integer> getHoldCount();
+
+    /**
+     * Checks if this lock locked by any thread
+     *
+     * @return <code>true</code> if locked otherwise <code>false</code>
+     */
+    Mono<Boolean> isLocked();
+
+    /**
+     * Remaining time to live of this lock 
+     *
+     * @return time in milliseconds
+     *          -2 if the lock does not exist.
+     *          -1 if the lock exists but has no associated expire.
+     */
+    Mono<Long> remainTimeToLive();
     
 }

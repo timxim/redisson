@@ -19,7 +19,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -114,7 +113,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     private static final ConcurrentMap<String, ExpirationEntry> EXPIRATION_RENEWAL_MAP = new ConcurrentHashMap<>();
     protected long internalLockLeaseTime;
 
-    final UUID id;
+    final String id;
     final String entryName;
 
     protected final LockPubSub pubSub;
@@ -145,29 +144,33 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     @Override
     public void lock() {
         try {
-            lockInterruptibly();
+            lock(-1, null, false);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            throw new IllegalStateException();
         }
     }
 
     @Override
     public void lock(long leaseTime, TimeUnit unit) {
         try {
-            lockInterruptibly(leaseTime, unit);
+            lock(leaseTime, unit, false);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            throw new IllegalStateException();
         }
     }
 
 
     @Override
     public void lockInterruptibly() throws InterruptedException {
-        lockInterruptibly(-1, null);
+        lock(-1, null, true);
     }
 
     @Override
     public void lockInterruptibly(long leaseTime, TimeUnit unit) throws InterruptedException {
+        lock(leaseTime, unit, true);
+    }
+
+    private void lock(long leaseTime, TimeUnit unit, boolean interruptibly) throws InterruptedException {
         long threadId = Thread.currentThread().getId();
         Long ttl = tryAcquire(leaseTime, unit, threadId);
         // lock acquired
@@ -176,7 +179,11 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         }
 
         RFuture<RedissonLockEntry> future = subscribe(threadId);
-        commandExecutor.syncSubscription(future);
+        if (interruptibly) {
+            commandExecutor.syncSubscriptionInterrupted(future);
+        } else {
+            commandExecutor.syncSubscription(future);
+        }
 
         try {
             while (true) {
@@ -188,9 +195,20 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
                 // waiting for message
                 if (ttl >= 0) {
-                    getEntry(threadId).getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                    try {
+                        future.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                    } catch (InterruptedException e) {
+                        if (interruptibly) {
+                            throw e;
+                        }
+                        future.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                    }
                 } else {
-                    getEntry(threadId).getLatch().acquire();
+                    if (interruptibly) {
+                        future.getNow().getLatch().acquire();
+                    } else {
+                        future.getNow().getLatch().acquireUninterruptibly();
+                    }
                 }
             }
         } finally {
@@ -269,8 +287,10 @@ public class RedissonLock extends RedissonExpirable implements RLock {
                         return;
                     }
                     
-                    // reschedule itself
-                    renewExpiration();
+                    if (res) {
+                        // reschedule itself
+                        renewExpiration();
+                    }
                 });
             }
         }, internalLockLeaseTime / 3, TimeUnit.MILLISECONDS);
@@ -309,9 +329,12 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         if (threadId != null) {
             task.removeThreadId(threadId);
         }
-        
+
         if (threadId == null || task.hasNoThreads()) {
-            task.getTimeout().cancel();
+            Timeout timeout = task.getTimeout();
+            if (timeout != null) {
+                timeout.cancel();
+            }
             EXPIRATION_RENEWAL_MAP.remove(getEntryName());
         }
     }
@@ -361,7 +384,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         
         current = System.currentTimeMillis();
         RFuture<RedissonLockEntry> subscribeFuture = subscribe(threadId);
-        if (!await(subscribeFuture, time, TimeUnit.MILLISECONDS)) {
+        if (!subscribeFuture.await(time, TimeUnit.MILLISECONDS)) {
             if (!subscribeFuture.cancel(false)) {
                 subscribeFuture.onComplete((res, e) -> {
                     if (e == null) {
@@ -397,9 +420,9 @@ public class RedissonLock extends RedissonExpirable implements RLock {
                 // waiting for message
                 currentTime = System.currentTimeMillis();
                 if (ttl >= 0 && ttl < time) {
-                    getEntry(threadId).getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
+                    subscribeFuture.getNow().getLatch().tryAcquire(ttl, TimeUnit.MILLISECONDS);
                 } else {
-                    getEntry(threadId).getLatch().tryAcquire(time, TimeUnit.MILLISECONDS);
+                    subscribeFuture.getNow().getLatch().tryAcquire(time, TimeUnit.MILLISECONDS);
                 }
 
                 time -= System.currentTimeMillis() - currentTime;
@@ -412,10 +435,6 @@ public class RedissonLock extends RedissonExpirable implements RLock {
             unsubscribe(subscribeFuture, threadId);
         }
 //        return get(tryLockAsync(waitTime, leaseTime, unit));
-    }
-
-    protected RedissonLockEntry getEntry(long threadId) {
-        return pubSub.getEntry(getEntryName());
     }
 
     protected RFuture<RedissonLockEntry> subscribe(long threadId) {
@@ -482,6 +501,11 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     public boolean isLocked() {
         return isExists();
     }
+    
+    @Override
+    public RFuture<Boolean> isLockedAsync() {
+        return isExistsAsync();
+    }
 
     @Override
     public RFuture<Boolean> isExistsAsync() {
@@ -523,10 +547,6 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
     protected RFuture<Boolean> unlockInnerAsync(long threadId) {
         return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-                "if (redis.call('exists', KEYS[1]) == 0) then " +
-                    "redis.call('publish', KEYS[2], ARGV[1]); " +
-                    "return 1; " +
-                "end;" +
                 "if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then " +
                     "return nil;" +
                 "end; " +
@@ -637,7 +657,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
                 return;
             }
 
-            RedissonLockEntry entry = getEntry(currentThreadId);
+            RedissonLockEntry entry = subscribeFuture.getNow();
             if (entry.getLatch().tryAcquire()) {
                 lockAsync(leaseTime, unit, subscribeFuture, result, currentThreadId);
             } else {
@@ -806,7 +826,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
                 // waiting for message
                 long current = System.currentTimeMillis();
-                RedissonLockEntry entry = getEntry(currentThreadId);
+                RedissonLockEntry entry = subscribeFuture.getNow();
                 if (entry.getLatch().tryAcquire()) {
                     tryLockAsync(time, leaseTime, unit, subscribeFuture, result, currentThreadId);
                 } else {

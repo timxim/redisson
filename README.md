@@ -1,12 +1,12 @@
-Redisson: Redis Java client and In-Memory Data Grid
-====
-[Quick start](https://github.com/redisson/redisson#quick-start) | [Documentation](https://github.com/redisson/redisson/wiki) | [Javadocs](http://www.javadoc.io/doc/org.redisson/redisson/3.10.3) | [Changelog](https://github.com/redisson/redisson/blob/master/CHANGELOG.md) | [Code examples](https://github.com/redisson/redisson-examples) | [FAQs](https://github.com/redisson/redisson/wiki/16.-FAQ) | [Report an issue](https://github.com/redisson/redisson/issues/new) | **[Redisson PRO](https://redisson.pro)**
+# Redisson - Redis Java client<br/>with features of In-Memory Data Grid
+
+[Quick start](https://github.com/redisson/redisson#quick-start) | [Documentation](https://github.com/redisson/redisson/wiki/Table-of-Content) | [Javadocs](http://www.javadoc.io/doc/org.redisson/redisson/3.11.5) | [Changelog](https://github.com/redisson/redisson/blob/master/CHANGELOG.md) | [Code examples](https://github.com/redisson/redisson-examples) | [FAQs](https://github.com/redisson/redisson/wiki/16.-FAQ) | [Report an issue](https://github.com/redisson/redisson/issues/new)
 
 Based on high-performance async and lock-free Java Redis client and [Netty](http://netty.io) framework.  
-JDK version compatibility:  1.8 - 11, Android  
+JDK compatibility:  1.8 - 13, Android  
 
-Features
-================================
+## Features
+
 * Replicated Redis servers mode (also supports [AWS ElastiCache](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Replication.html) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/)):
     1. automatic master server change discovery
 * Clustered Redis servers mode (also supports [AWS ElastiCache Cluster](http://docs.aws.amazon.com/AmazonElastiCache/latest/UserGuide/Clusters.html) and [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/)):
@@ -17,7 +17,7 @@ Features
     1. automatic master, slave and sentinel servers discovery
     2. automatic status and topology update
 * Master with Slave Redis servers mode  
-* Single Redis server mode  
+* Single Redis server mode (also supports [Azure Redis Cache](https://azure.microsoft.com/en-us/services/cache/) and [Google Cloud Memorystore for Redis](https://cloud.google.com/memorystore/docs/redis/)) 
 * Thread-safe implementation  
 * [Reactive Streams](https://github.com/redisson/redisson/wiki/3.-operations-execution#32-reactive-way) API  
 * [RxJava2](https://github.com/redisson/redisson/wiki/3.-operations-execution#32-reactive-way) API  
@@ -51,8 +51,8 @@ Features
 * Supports OSGi  
 * Supports SSL  
 * Supports many popular codecs ([Jackson JSON](https://github.com/FasterXML/jackson), [Avro](http://avro.apache.org/), [Smile](http://wiki.fasterxml.com/SmileFormatSpec), [CBOR](http://cbor.io/), [MsgPack](http://msgpack.org/), [Kryo](https://github.com/EsotericSoftware/kryo), [Amazon Ion](https://amzn.github.io/ion-docs/), [FST](https://github.com/RuedigerMoeller/fast-serialization), [LZ4](https://github.com/jpountz/lz4-java), [Snappy](https://github.com/xerial/snappy-java) and JDK Serialization)
-* With over 1800 unit tests  
-
+* With over 2000 unit tests  
+<!--
 Used by
 ================================
 [![Siemens](https://redisson.org/assets/logos/client29.png "Siemens")](https://www.siemens.com) &nbsp;&nbsp;&nbsp;
@@ -89,43 +89,73 @@ Used by
 [![SULAKE](https://redisson.org/assets/logos/client17.png "SULAKE")](http://www.sulake.com/)
 
 <sub>Logos, product names and all other trademarks displayed on this page belong to their respective holders and used for identification purposes only. Use of these trademarks, names and brands does not imply endorsement.</sub>
-
-Success stories
-================================
+-->
+## Success stories
 
 ## [Moving from Hazelcast to Redis  /  Datorama](https://engineering.datorama.com/moving-from-hazelcast-to-redis-b90a0769d1cb)  
 ## [Distributed Locking with Redis (Migration from Hazelcast)  /  ContaAzul](https://carlosbecker.com/posts/distributed-locks-redis/)  
 ## [Migrating from Coherence to Redis](https://www.youtube.com/watch?v=JF5R2ucKTEg)  
 
 
-Quick start
-===============================
+## Quick start
 
 #### Maven 
     <dependency>
        <groupId>org.redisson</groupId>
        <artifactId>redisson</artifactId>
-       <version>3.10.5</version>
+       <version>3.11.6</version>
     </dependency>  
 
 
 #### Gradle
-    compile 'org.redisson:redisson:3.10.5'  
+    compile 'org.redisson:redisson:3.11.6'  
 
 #### Java
 
 ```java
 // 1. Create config object
-Config = ...
+Config config = new Config();
+config.useClusterServers()
+       // use "rediss://" for SSL connection
+      .addNodeAddress("redis://127.0.0.1:7181");
 
+// or read config from file
+config = Config.fromYAML(new File("config-file.yaml")); 
+```
+
+```java
 // 2. Create Redisson instance
+
+// Sync and Async API
 RedissonClient redisson = Redisson.create(config);
 
-// 3. Get Redis based object or service you need
+// Reactive API
+RedissonReactiveClient redissonReactive = Redisson.createReactive(config);
+
+// RxJava2 API
+RedissonRxClient redissonRx = Redisson.createRx(config);
+```
+
+```java
+// 3. Get Redis based Map
 RMap<MyKey, MyValue> map = redisson.getMap("myMap");
 
+RMapReactive<MyKey, MyValue> mapReactive = redissonReactive.getMap("myMap");
+
+RMapRx<MyKey, MyValue> mapRx = redissonRx.getMap("myMap");
+```
+
+```java
+// 4. Get Redis based Lock
 RLock lock = redisson.getLock("myLock");
 
+RLockReactive lockReactive = redissonReactive.getLock("myLock");
+
+RLockRx lockRx = redissonRx.getLock("myLock");
+```
+
+```java
+// 4. Get Redis based ExecutorService
 RExecutorService executor = redisson.getExecutorService("myExecutorService");
 
 // over 30 different Redis based objects and services ...
@@ -134,14 +164,13 @@ RExecutorService executor = redisson.getExecutorService("myExecutorService");
 
 Consider __[Redisson PRO](https://redisson.pro)__ version for advanced features and support by SLA.
 
-Downloads
-===============================
+## Downloads
    
-[Redisson 3.10.5](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.10.5&e=jar),
-[Redisson node 3.10.5](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.10.5&e=jar)  
+[Redisson 3.11.6](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson&v=3.11.6&e=jar),
+[Redisson node 3.11.6](https://repository.sonatype.org/service/local/artifact/maven/redirect?r=central-proxy&g=org.redisson&a=redisson-all&v=3.11.6&e=jar)  
 
-FAQs
-===============================
+## FAQs
+
 [Q: I saw a RedisTimeOutException, What does it mean? What shall I do? Can Redisson Team fix it?](https://github.com/redisson/redisson/wiki/16.-FAQ#q-i-saw-a-redistimeoutexception-what-does-it-mean-what-shall-i-do-can-redisson-team-fix-it)
 
 [Q: I saw a com.fasterxml.jackson.databind.JsonMappingException during deserialization process, can you fix it?](https://github.com/redisson/redisson/wiki/16.-FAQ#q-i-saw-a-comfasterxmljacksondatabindjsonmappingexception-during-deserialization-process-can-you-fix-it)

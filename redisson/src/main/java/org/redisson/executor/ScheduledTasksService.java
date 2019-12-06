@@ -21,15 +21,12 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import org.redisson.RedissonExecutorService;
 import org.redisson.api.RFuture;
-import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandExecutor;
 import org.redisson.executor.params.ScheduledParameters;
-import org.redisson.misc.RPromise;
-import org.redisson.remote.RRemoteServiceResponse;
 import org.redisson.remote.RemoteServiceRequest;
 import org.redisson.remote.RequestId;
 import org.redisson.remote.ResponseEntry;
@@ -43,8 +40,8 @@ public class ScheduledTasksService extends TasksService {
 
     private RequestId requestId;
     
-    public ScheduledTasksService(Codec codec, RedissonClient redisson, String name, CommandExecutor commandExecutor, String redissonId, ConcurrentMap<String, ResponseEntry> responses) {
-        super(codec, redisson, name, commandExecutor, redissonId, responses);
+    public ScheduledTasksService(Codec codec, String name, CommandExecutor commandExecutor, String redissonId, ConcurrentMap<String, ResponseEntry> responses) {
+        super(codec, name, commandExecutor, redissonId, responses);
     }
     
     public void setRequestId(RequestId requestId) {
@@ -121,22 +118,20 @@ public class ScheduledTasksService extends TasksService {
     }
     
     @Override
-    protected <T extends RRemoteServiceResponse> RPromise<T> pollResultResponse(long timeout, RequestId requestId,
-            RemoteServiceRequest request) {
+    protected long getTimeout(Long executionTimeoutInMillis, RemoteServiceRequest request) {
         if (request.getArgs()[0].getClass() == ScheduledParameters.class) {
             ScheduledParameters params = (ScheduledParameters) request.getArgs()[0];
-            timeout += params.getStartTime() - System.currentTimeMillis();
+            return executionTimeoutInMillis + params.getStartTime() - System.currentTimeMillis();
         }
-        return super.pollResultResponse(timeout, requestId, request);
+        return executionTimeoutInMillis;
     }
-    
     
     @Override
     protected RequestId generateRequestId() {
         if (requestId == null) {
             byte[] id = new byte[17];
             ThreadLocalRandom.current().nextBytes(id);
-            id[0] = 1;
+            id[0] = 01;
             return new RequestId(id);
         }
         return requestId;

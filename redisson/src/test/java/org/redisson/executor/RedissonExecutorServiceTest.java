@@ -25,11 +25,8 @@ import org.redisson.BaseTest;
 import org.redisson.RedisRunner;
 import org.redisson.Redisson;
 import org.redisson.RedissonNode;
-import org.redisson.api.ExecutorOptions;
-import org.redisson.api.RExecutorBatchFuture;
-import org.redisson.api.RExecutorFuture;
-import org.redisson.api.RExecutorService;
-import org.redisson.api.RedissonClient;
+import org.redisson.api.*;
+import org.redisson.api.annotation.RInject;
 import org.redisson.config.Config;
 import org.redisson.config.RedissonNodeConfig;
 import org.redisson.connection.balancer.RandomLoadBalancer;
@@ -69,6 +66,23 @@ public class RedissonExecutorServiceTest extends BaseTest {
             canceled = true;
         }
         assertThat(canceled).isTrue();
+    }
+
+    @Test
+    public void testTaskCount() throws InterruptedException {
+        RExecutorService e = redisson.getExecutorService("test");
+        assertThat(e.getTaskCount()).isEqualTo(0);
+
+        e.submit(new DelayedTask(1000, "testcounter"));
+        e.submit(new DelayedTask(1000, "testcounter"));
+        for (int i = 0; i < 20; i++) {
+            e.submit(new RunnableTask());
+        }
+        assertThat(e.getTaskCount()).isEqualTo(22);
+
+        Thread.sleep(1500);
+
+        assertThat(e.getTaskCount()).isEqualTo(21);
     }
 
     @Test
@@ -273,7 +287,31 @@ public class RedissonExecutorServiceTest extends BaseTest {
         redisson.getKeys().delete("myCounter");
         assertThat(redisson.getKeys().count()).isZero();
     }
-    
+
+
+    public static class TestClass implements Runnable, Serializable {
+
+        @RInject
+        private String id;
+
+        @RInject
+        private RedissonClient client;
+
+        @Override
+        public void run() {
+            client.getBucket("id").set(id);
+        }
+    }
+
+    @Test
+    public void testTaskId() throws ExecutionException, InterruptedException {
+        RExecutorService executor = redisson.getExecutorService("test");
+        RExecutorFuture<?> future = executor.submit(new TestClass());
+        future.get();
+        String id = redisson.<String>getBucket("id").get();
+        assertThat(id).hasSize(34);
+    }
+
     @Test
     public void testCancelAndInterrupt() throws InterruptedException, ExecutionException {
         RExecutorService executor = redisson.getExecutorService("test");
@@ -482,7 +520,19 @@ public class RedissonExecutorServiceTest extends BaseTest {
         Future<String> future = redisson.getExecutorService("test").submit(new ParameterizedTask("testparam"));
         assertThat(future.get()).isEqualTo("testparam");
     }
-    
+
+    @Test
+    public void testTTL() throws InterruptedException {
+        RScheduledExecutorService executor = redisson.getExecutorService("test");
+        executor.submit(new DelayedTask(2000, "test"));
+        Future<?> future = executor.submit(new ScheduledRunnableTask("testparam"), 1, TimeUnit.SECONDS);
+        Thread.sleep(500);
+        assertThat(executor.getTaskCount()).isEqualTo(2);
+        Thread.sleep(2000);
+        assertThat(executor.getTaskCount()).isEqualTo(0);
+        assertThat(redisson.getKeys().countExists("testparam")).isEqualTo(0);
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testAnonymousRunnable() {
         redisson.getExecutorService("test").submit(new Runnable() {

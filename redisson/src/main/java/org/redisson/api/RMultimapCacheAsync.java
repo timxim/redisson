@@ -17,6 +17,14 @@ package org.redisson.api;
 
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Base asynchronous Multimap interface. Allows to map multiple values per key and define expiration per key.
+ *
+ * @author Nikita Koksharov
+ *
+ * @param <K> key type
+ * @param <V> value type
+ */
 public interface RMultimapCacheAsync<K, V> extends RMultimapAsync<K, V> {
 
     /**

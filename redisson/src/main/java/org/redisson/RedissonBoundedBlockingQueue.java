@@ -20,6 +20,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import org.redisson.api.RBoundedBlockingQueue;
 import org.redisson.api.RFuture;
@@ -53,10 +54,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
     }
     
     private String getSemaphoreName() {
-        if (getName().contains("{")) {
-            return "redisson_bqs:" + getName();
-        }
-        return "redisson_bqs:{" + getName() + "}";
+        return prefixName("redisson_bqs", getName());
     }
     
     @Override
@@ -195,7 +193,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
      */
     @Override
     public V take() throws InterruptedException {
-        return get(takeAsync());
+        return commandExecutor.getInterrupted(takeAsync());
     }
 
     @Override
@@ -210,7 +208,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
      */
     @Override
     public V poll(long timeout, TimeUnit unit) throws InterruptedException {
-        return get(pollAsync(timeout, unit));
+        return commandExecutor.getInterrupted(pollAsync(timeout, unit));
     }
 
     /*
@@ -219,7 +217,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
      */
     @Override
     public V pollFromAny(long timeout, TimeUnit unit, String... queueNames) throws InterruptedException {
-        return get(pollFromAnyAsync(timeout, unit, queueNames));
+        return commandExecutor.getInterrupted(pollFromAnyAsync(timeout, unit, queueNames));
     }
 
     /*
@@ -234,9 +232,19 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
 
     @Override
     public V takeLastAndOfferFirstTo(String queueName) throws InterruptedException {
-        return get(takeLastAndOfferFirstToAsync(queueName));
+        return commandExecutor.getInterrupted(takeLastAndOfferFirstToAsync(queueName));
     }
-    
+
+    @Override
+    public int subscribeOnElements(Consumer<V> consumer) {
+        return commandExecutor.getConnectionManager().getElementsSubscribeService().subscribeOnElements(this::takeAsync, consumer);
+    }
+
+    @Override
+    public void unsubscribe(int listenerId) {
+        commandExecutor.getConnectionManager().getElementsSubscribeService().unsubscribe(listenerId);
+    }
+
     @Override
     public RFuture<V> takeLastAndOfferFirstToAsync(String queueName) {
         return pollLastAndOfferFirstToAsync(queueName, 0, TimeUnit.SECONDS);
@@ -250,7 +258,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
 
     @Override
     public V pollLastAndOfferFirstTo(String queueName, long timeout, TimeUnit unit) throws InterruptedException {
-        return get(pollLastAndOfferFirstToAsync(queueName, timeout, unit));
+        return commandExecutor.getInterrupted(pollLastAndOfferFirstToAsync(queueName, timeout, unit));
     }
 
     @Override
@@ -310,6 +318,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
                         Arrays.<Object>asList(getName(), getSemaphoreName(), channelName), maxElements);
     }
     
+    @Override
     public RFuture<Boolean> trySetCapacityAsync(int capacity) {
         String channelName = RedissonSemaphore.getChannelName(getSemaphoreName());
         return commandExecutor.evalWriteAsync(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
@@ -323,6 +332,7 @@ public class RedissonBoundedBlockingQueue<V> extends RedissonQueue<V> implements
                 Arrays.<Object>asList(getSemaphoreName(), channelName), capacity);
     }
     
+    @Override
     public boolean trySetCapacity(int capacity) {
         return get(trySetCapacityAsync(capacity));
     }

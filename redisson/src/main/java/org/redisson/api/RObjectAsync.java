@@ -18,7 +18,7 @@ package org.redisson.api;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Base interface for all Redisson objects
+ * Base asynchronous interface for all Redisson objects
  *
  * @author Nikita Koksharov
  *
@@ -26,9 +26,9 @@ import java.util.concurrent.TimeUnit;
 public interface RObjectAsync {
 
     /**
-     * Returns size of object in Redis memory
+     * Returns bytes amount used by object in Redis memory. 
      * 
-     * @return size of object
+     * @return size in bytes
      */
     RFuture<Long> sizeInMemoryAsync();
     

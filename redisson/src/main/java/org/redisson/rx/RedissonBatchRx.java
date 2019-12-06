@@ -15,7 +15,6 @@
  */
 package org.redisson.rx;
 
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.RedissonAtomicDouble;
@@ -51,7 +50,6 @@ import org.redisson.api.RBlockingDequeRx;
 import org.redisson.api.RBlockingQueueRx;
 import org.redisson.api.RBucketRx;
 import org.redisson.api.RDequeRx;
-import org.redisson.api.RFuture;
 import org.redisson.api.RGeoRx;
 import org.redisson.api.RHyperLogLogRx;
 import org.redisson.api.RKeysRx;
@@ -74,7 +72,6 @@ import org.redisson.api.RedissonRxClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.eviction.EvictionScheduler;
-import org.redisson.misc.RedissonPromise;
 
 import io.reactivex.Maybe;
 
@@ -143,28 +140,28 @@ public class RedissonBatchRx implements RBatchRx {
 
     @Override
     public <K, V> RMapRx<K, V> getMap(String name) {
-        RedissonMap<K, V> map = new RedissonMap<K, V>(executorService, name, null, null);
+        RedissonMap<K, V> map = new RedissonMap<K, V>(executorService, name, null, null, null);
         return RxProxyBuilder.create(executorService, map, 
                 new RedissonMapRx<K, V>(map, null), RMapRx.class);
     }
 
     @Override
     public <K, V> RMapRx<K, V> getMap(String name, Codec codec) {
-        RedissonMap<K, V> map = new RedissonMap<K, V>(codec, executorService, name, null, null);
+        RedissonMap<K, V> map = new RedissonMap<K, V>(codec, executorService, name, null, null, null);
         return RxProxyBuilder.create(executorService, map, 
                 new RedissonMapRx<K, V>(map, null), RMapRx.class);
     }
 
     @Override
     public <K, V> RMapCacheRx<K, V> getMapCache(String name, Codec codec) {
-        RMapCache<K, V> map = new RedissonMapCache<K, V>(codec, evictionScheduler, executorService, name, null, null);
+        RMapCache<K, V> map = new RedissonMapCache<K, V>(codec, evictionScheduler, executorService, name, null, null, null);
         return RxProxyBuilder.create(executorService, map, 
                 new RedissonMapCacheRx<K, V>(map), RMapCacheRx.class);
     }
 
     @Override
     public <K, V> RMapCacheRx<K, V> getMapCache(String name) {
-        RMapCache<K, V> map = new RedissonMapCache<K, V>(evictionScheduler, executorService, name, null, null);
+        RMapCache<K, V> map = new RedissonMapCache<K, V>(evictionScheduler, executorService, name, null, null, null);
         return RxProxyBuilder.create(executorService, map, 
                 new RedissonMapCacheRx<K, V>(map), RMapCacheRx.class);
     }
@@ -298,16 +295,7 @@ public class RedissonBatchRx implements RBatchRx {
 
     @Override
     public Maybe<BatchResult<?>> execute() {
-        return commandExecutor.flowable(new Callable<RFuture<BatchResult<?>>>() {
-            @Override
-            public RFuture<BatchResult<?>> call() {
-                try {
-                    return executorService.executeAsync(options);
-                } catch (Exception e) {
-                    return RedissonPromise.newFailedFuture(e);
-                }
-            }
-        }).singleElement();
+        return commandExecutor.flowable(() -> executorService.executeAsync(options)).singleElement();
     }
     
     public RBatchRx atomic() {

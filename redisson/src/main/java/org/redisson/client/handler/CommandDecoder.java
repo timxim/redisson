@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 import org.redisson.client.RedisAskException;
+import org.redisson.client.RedisAuthRequiredException;
 import org.redisson.client.RedisException;
 import org.redisson.client.RedisLoadingException;
 import org.redisson.client.RedisMovedException;
@@ -64,7 +65,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.util.CharsetUtil;
-import io.netty.util.concurrent.FastThreadLocal;
 
 /**
  * Redis protocol command decoder
@@ -83,8 +83,6 @@ public class CommandDecoder extends ReplayingDecoder<State> {
     final ExecutorService executor;
     private final boolean decodeInExecutor;
     
-    private final FastThreadLocal<State> state = new FastThreadLocal<State>();
-    
     public CommandDecoder(ExecutorService executor, boolean decodeInExecutor) {
         this.decodeInExecutor = decodeInExecutor;
         this.executor = executor;
@@ -94,24 +92,35 @@ public class CommandDecoder extends ReplayingDecoder<State> {
     protected final void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         QueueCommand data = ctx.channel().attr(CommandsQueue.CURRENT_COMMAND).get();
 
-        if (state.get() == null) {
-            state.set(new State());
+        if (state() == null) {
+            state(new State());
         }
         
-        state.get().setDecoderState(null);
-
         if (data == null) {
             while (in.writerIndex() > in.readerIndex()) {
-                skipCommand(in);
+                int endIndex = skipCommand(in);
 
-                decode(ctx, in, data);
+                try {
+                    decode(ctx, in, data);
+                } catch (Exception e) {
+                    in.readerIndex(endIndex);
+                    throw e;
+                }
             }
         } else {
+            int endIndex = 0;
             if (!(data instanceof CommandsData)) {
-                skipCommand(in);
+                endIndex = skipCommand(in);
             }
             
-            decode(ctx, in, data);
+            try {
+                decode(ctx, in, data);
+            } catch (Exception e) {
+                if (!(data instanceof CommandsData)) {
+                    in.readerIndex(endIndex);
+                }
+                throw e;
+            }
         }
     }
 
@@ -124,8 +133,7 @@ public class CommandDecoder extends ReplayingDecoder<State> {
             ByteBuf copy = in.copy(in.readerIndex(), in.writerIndex() - in.readerIndex());
             in.skipBytes(in.writerIndex() - in.readerIndex());
             executor.execute(() -> {
-                state.set(new State());
-                state.get().setDecoderState(null);
+                state(new State());
                 
                 try {
                     decodeCommand(ctx.channel(), copy, data);
@@ -150,10 +158,12 @@ public class CommandDecoder extends ReplayingDecoder<State> {
         }
     }
     
-    protected void skipCommand(ByteBuf in) throws Exception {
+    protected int skipCommand(ByteBuf in) throws Exception {
         in.markReaderIndex();
         skipDecode(in);
+        int res = in.readerIndex();
         in.resetReaderIndex();
+        return res;
     }
     
     protected void skipDecode(ByteBuf in) throws IOException{
@@ -229,21 +239,22 @@ public class CommandDecoder extends ReplayingDecoder<State> {
 
     protected void sendNext(Channel channel) {
         channel.pipeline().get(CommandsQueue.class).sendNextCommand(channel);
-        state.set(null);
+        state(null);
     }
 
     private void decodeCommandBatch(Channel channel, ByteBuf in, QueueCommand data,
                     CommandsData commandBatch) throws Exception {
-        int i = state.get().getBatchIndex();
+        int i = state().getBatchIndex();
 
         Throwable error = null;
         while (in.writerIndex() > in.readerIndex()) {
             CommandData<Object, Object> commandData = null;
+
+            checkpoint();
+            state().setBatchIndex(i);
+            
+            int endIndex = skipCommand(in);
             try {
-                checkpoint();
-                state.get().setBatchIndex(i);
-                
-                skipCommand(in);
                 
                 RedisCommand<?> cmd = commandBatch.getCommands().get(i).getCommand();
                 boolean skipConvertor = commandBatch.isQueued();
@@ -285,10 +296,10 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                     }
                 }
             } catch (Exception e) {
+                in.readerIndex(endIndex);
                 if (commandData != null) {
                     commandData.tryFailure(e);
                 }
-                throw e;
             }
             i++;
             if (commandData != null && !commandData.isSuccess()) {
@@ -311,7 +322,7 @@ public class CommandDecoder extends ReplayingDecoder<State> {
             sendNext(channel);
         } else {
             checkpoint();
-            state.get().setBatchIndex(i);
+            state().setBatchIndex(i);
         }
     }
 
@@ -346,6 +357,9 @@ public class CommandDecoder extends ReplayingDecoder<State> {
             } else if (error.contains("-OOM ")) {
                 data.tryFailure(new RedisOutOfMemoryException(error.split("-OOM ")[1]
                         + ". channel: " + channel + " data: " + data));
+            } else if (error.startsWith("NOAUTH")) {
+                data.tryFailure(new RedisAuthRequiredException(error
+                        + ". channel: " + channel + " data: " + data));
             } else {
                 if (data != null) {
                     data.tryFailure(new RedisException(error + ". channel: " + channel + " command: " + LogHelper.toString(data)));
@@ -361,18 +375,18 @@ public class CommandDecoder extends ReplayingDecoder<State> {
             Object result = null;
             if (buf != null) {
                 Decoder<Object> decoder = selectDecoder(data, parts);
-                result = decoder.decode(buf, state.get());
+                result = decoder.decode(buf, state());
             }
             handleResult(data, parts, result, false, channel);
         } else if (code == '*') {
             long size = readLong(in);
             List<Object> respParts = new ArrayList<Object>(Math.max((int) size, 0));
             
-            state.get().incLevel();
+            state().incLevel();
             
             decodeList(in, data, parts, channel, size, respParts, skipConvertor, commandsData);
             
-            state.get().decLevel();
+            state().decLevel();
             
         } else {
             String dataStr = in.toString(0, in.writerIndex(), CharsetUtil.UTF_8);
@@ -414,7 +428,7 @@ public class CommandDecoder extends ReplayingDecoder<State> {
             return;
         }
 
-        Object result = decoder.decode(respParts, state.get());
+        Object result = decoder.decode(respParts, state());
         decodeResult(data, parts, channel, result);
     }
 
@@ -459,7 +473,7 @@ public class CommandDecoder extends ReplayingDecoder<State> {
         if (parts != null) {
             MultiDecoder<Object> multiDecoder = data.getCommand().getReplayMultiDecoder();
             if (multiDecoder != null) {
-                Decoder<Object> mDecoder = multiDecoder.getDecoder(parts.size(), state.get());
+                Decoder<Object> mDecoder = multiDecoder.getDecoder(parts.size(), state());
                 if (mDecoder != null) {
                     return mDecoder;
                 }

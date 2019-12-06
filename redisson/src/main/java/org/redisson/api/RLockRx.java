@@ -169,4 +169,20 @@ public interface RLockRx {
      */
     Single<Integer> getHoldCount();
     
+    /**
+     * Checks if this lock locked by any thread
+     *
+     * @return <code>true</code> if locked otherwise <code>false</code>
+     */
+    Single<Boolean> isLocked();
+
+    /**
+     * Remaining time to live of this lock 
+     *
+     * @return time in milliseconds
+     *          -2 if the lock does not exist.
+     *          -1 if the lock exists but has no associated expire.
+     */
+    Single<Long> remainTimeToLive();
+    
 }

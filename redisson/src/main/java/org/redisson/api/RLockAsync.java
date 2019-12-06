@@ -159,4 +159,20 @@ public interface RLockAsync {
      */
     RFuture<Integer> getHoldCountAsync();
     
+    /**
+     * Checks if this lock locked by any thread
+     *
+     * @return <code>true</code> if locked otherwise <code>false</code>
+     */
+    RFuture<Boolean> isLockedAsync();
+    
+    /**
+     * Remaining time to live of this lock 
+     *
+     * @return time in milliseconds
+     *          -2 if the lock does not exist.
+     *          -1 if the lock exists but has no associated expire.
+     */
+    RFuture<Long> remainTimeToLiveAsync();
+    
 }

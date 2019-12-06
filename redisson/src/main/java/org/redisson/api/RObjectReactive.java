@@ -22,7 +22,7 @@ import org.redisson.client.codec.Codec;
 import reactor.core.publisher.Mono;
 
 /**
- * Base interface for all Redisson objects
+ * Base Reactive interface for all Redisson objects
  *
  * @author Nikita Koksharov
  *
@@ -32,6 +32,13 @@ public interface RObjectReactive {
     String getName();
     
     Codec getCodec();
+    
+    /**
+     * Returns bytes amount used by object in Redis memory. 
+     * 
+     * @return size in bytes
+     */
+    Mono<Long> sizeInMemory();
     
     /**
      * Restores object using its state returned by {@link #dump()} method.
